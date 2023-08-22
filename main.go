@@ -11,15 +11,15 @@ const BUCKET string = "default"
 
 type MyKVCounter struct{}
 
-func (kv *MyKVCounter) IncrementCounter(bucket uint32, key string, amount int32) {
+func (kv *MyKVCounter) IncrementCounter(bucket uint32, key string, amount int32) uint32 {
 	incomingValue := kvcounter.WasiKeyvalueReadwriteGet(bucket, key)
 	if incomingValue.IsErr() {
-		return
+		return 0
 	}
 
 	b := kvcounter.WasiKeyvalueTypesIncomingValueConsumeSync(incomingValue.Unwrap())
 	if b.IsErr() {
-		return
+		return b.UnwrapErr()
 	}
 
 	value := string(b.Val)
@@ -27,20 +27,30 @@ func (kv *MyKVCounter) IncrementCounter(bucket uint32, key string, amount int32)
 
 	iValue, err := strconv.Atoi(value)
 	if err != nil {
-		return
+		return b.UnwrapErr()
 	}
 
 	outgoingValue := kvcounter.WasiKeyvalueTypesNewOutgoingValue()
 
 	stream := kvcounter.WasiKeyvalueTypesOutgoingValueWriteBody(outgoingValue)
 	if stream.IsErr() {
-		return
+		return b.UnwrapErr()
 	}
 
 	inc := strconv.Itoa(iValue + int(amount))
 	kvcounter.WasiIoStreamsWrite(stream.Unwrap(), []byte(inc))
 
-	kvcounter.WasiKeyvalueReadwriteSet(bucket, key, outgoingValue)
+	res := kvcounter.WasiKeyvalueReadwriteSet(bucket, key, outgoingValue)
+	if res.IsErr() {
+		return b.UnwrapErr()
+	}
+
+	stat := kvcounter.WasiKeyvalueReadwriteGet(bucket, key)
+	if stat.IsErr() {
+		return b.UnwrapErr()
+	}
+
+	return stat.Unwrap()
 }
 
 func writeWasiHttpResponse(body []byte, responseOutparam kvcounter.WasiHttpTypesResponseOutparam) {
@@ -86,12 +96,8 @@ func (kv *MyKVCounter) Handle(request kvcounter.WasiHttpIncomingHandlerIncomingR
 				return
 			}
 
-			inc := kvcounter.WasiKeyvalueAtomicIncrement(bucket.Unwrap(), "default", 1)
-			if inc.IsErr() {
-				return
-			}
-
-			writeWasiHttpResponse([]byte("New value: "+strconv.Itoa(int(inc.Unwrap()))), response)
+			newNum := kv.IncrementCounter(bucket.Unwrap(), "default", 1)
+			writeWasiHttpResponse([]byte("New value: "+strconv.Itoa(int(newNum))), response)
 		}
 	default:
 		return
