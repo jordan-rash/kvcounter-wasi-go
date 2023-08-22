@@ -67,7 +67,7 @@ func writeWasiHttpResponse(body []byte, responseOutparam kvcounter.WasiHttpTypes
 	}
 }
 
-func (kv *MyKVCounter) Handler(request kvcounter.WasiHttpIncomingHandlerIncomingRequest, response kvcounter.WasiHttpTypesResponseOutparam) {
+func (kv *MyKVCounter) Handle(request kvcounter.WasiHttpIncomingHandlerIncomingRequest, response kvcounter.WasiHttpTypesResponseOutparam) {
 	method := kvcounter.WasiHttpTypesIncomingRequestMethod(request)
 
 	pathWithQuery := kvcounter.WasiHttpTypesIncomingRequestPathWithQuery(request)
@@ -97,6 +97,11 @@ func (kv *MyKVCounter) Handler(request kvcounter.WasiHttpIncomingHandlerIncoming
 		return
 	}
 
+}
+
+func init() {
+	mkv := new(MyKVCounter)
+	kvcounter.SetExportsWasiHttpIncomingHandler(mkv)
 }
 
 //go:generate wit-bindgen tiny-go ./wit -w kvcounter --out-dir=gen
