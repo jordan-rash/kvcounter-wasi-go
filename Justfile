@@ -14,6 +14,8 @@ wasm_preview2_output_path := "./wasi_snapshot_preview1.command.wasm"
 
 _default:
   {{just}} --list
+
+@versions:
   {{tinygo}} version
   {{wash}} --version
   {{wasm_tools}} --version
