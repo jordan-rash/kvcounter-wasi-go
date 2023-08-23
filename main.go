@@ -1,106 +1,150 @@
 package main
 
 import (
+	"embed"
+	"encoding/json"
+	"mime"
 	"strconv"
 	"strings"
 
 	kvcounter "kvcounter/gen"
 )
 
-const BUCKET string = "default"
+//go:embed ui/*
+var embeddedUI embed.FS
+
+const BUCKET string = ""
 
 type MyKVCounter struct{}
 
 func (kv *MyKVCounter) IncrementCounter(bucket uint32, key string, amount int32) uint32 {
-	incomingValue := kvcounter.WasiKeyvalueReadwriteGet(bucket, key)
-	if incomingValue.IsErr() {
-		return 0
+	var currentValue uint32
+	currentValueGet := kvcounter.WasiKeyvalueReadwriteGet(bucket, key)
+	if currentValueGet.IsErr() {
+		currentValue = 0
+	} else {
+		b := kvcounter.WasiKeyvalueTypesIncomingValueConsumeSync(currentValueGet.Unwrap())
+		if b.IsErr() {
+			return 100
+		}
+		bNum, err := strconv.Atoi(string(b.Unwrap()))
+		if err != nil {
+			return 101
+		}
+		currentValue = uint32(bNum)
 	}
 
-	b := kvcounter.WasiKeyvalueTypesIncomingValueConsumeSync(incomingValue.Unwrap())
-	if b.IsErr() {
-		return b.UnwrapErr()
-	}
-
-	value := string(b.Val)
-	value = strings.TrimSpace(value)
-
-	iValue, err := strconv.Atoi(value)
-	if err != nil {
-		return b.UnwrapErr()
-	}
-
+	newValue := currentValue + uint32(amount)
 	outgoingValue := kvcounter.WasiKeyvalueTypesNewOutgoingValue()
-
 	stream := kvcounter.WasiKeyvalueTypesOutgoingValueWriteBody(outgoingValue)
 	if stream.IsErr() {
-		return b.UnwrapErr()
+		return 102
 	}
 
-	inc := strconv.Itoa(iValue + int(amount))
-	kvcounter.WasiIoStreamsWrite(stream.Unwrap(), []byte(inc))
+	kvcounter.WasiIoStreamsWrite(stream.Unwrap(), []byte(strconv.Itoa(int(newValue))))
 
-	res := kvcounter.WasiKeyvalueReadwriteSet(bucket, key, outgoingValue)
-	if res.IsErr() {
-		return b.UnwrapErr()
-	}
+	_ = kvcounter.WasiKeyvalueReadwriteSet(bucket, key, outgoingValue)
+	// TODO: this is throwing an error even though it isn't erroring
+	// if res.IsErr() {
+	// 	return 103
+	// }
 
 	stat := kvcounter.WasiKeyvalueReadwriteGet(bucket, key)
 	if stat.IsErr() {
-		return b.UnwrapErr()
+		return 104
 	}
 
-	return stat.Unwrap()
+	return newValue
 }
 
-func writeWasiHttpResponse(body []byte, responseOutparam kvcounter.WasiHttpTypesResponseOutparam) {
-	headers := kvcounter.WasiHttpTypesNewFields([]kvcounter.WasiHttpTypesTuple2StringListU8TT{})
+func writeHttpResponse(responseOutparam kvcounter.WasiHttpHttpTypesResponseOutparam, statusCode uint16, inHeaders []kvcounter.WasiHttpHttpTypesTuple2StringListU8TT, body []byte) {
+	headers := kvcounter.WasiHttpHttpTypesNewFields(inHeaders)
 
-	outgoingResponse := kvcounter.WasiHttpTypesNewOutgoingResponse(200, headers)
+	outgoingResponse := kvcounter.WasiHttpHttpTypesNewOutgoingResponse(statusCode, headers)
 	if outgoingResponse.IsErr() {
 		return
 	}
 
-	outgoingStream := kvcounter.WasiHttpTypesOutgoingResponseWrite(outgoingResponse.Unwrap())
-	if !outgoingStream.IsErr() {
+	outgoingStream := kvcounter.WasiHttpHttpTypesOutgoingResponseWrite(outgoingResponse.Unwrap())
+	if outgoingStream.IsErr() {
 		return
 	}
 
-	if kvcounter.WasiIoStreamsWrite(outgoingStream.Val, body).IsErr() {
+	w := kvcounter.WasiIoStreamsWrite(outgoingStream.Val, body)
+	if w.IsErr() {
 		return
 	}
 
-	kvcounter.WasiHttpTypesFinishOutgoingStream(outgoingStream.Val)
+	kvcounter.WasiHttpHttpTypesFinishOutgoingStream(outgoingStream.Val)
 
-	if kvcounter.WasiHttpTypesSetResponseOutparam(responseOutparam, outgoingResponse).IsErr() {
+	outparm := kvcounter.WasiHttpHttpTypesSetResponseOutparam(responseOutparam, outgoingResponse)
+	if outparm.IsErr() {
 		return
 	}
 }
 
-func (kv *MyKVCounter) Handle(request kvcounter.WasiHttpIncomingHandlerIncomingRequest, response kvcounter.WasiHttpTypesResponseOutparam) {
-	method := kvcounter.WasiHttpTypesIncomingRequestMethod(request)
+func (kv *MyKVCounter) Handle(request kvcounter.WasiHttpIncomingHandlerIncomingRequest, response kvcounter.WasiHttpHttpTypesResponseOutparam) {
+	method := kvcounter.WasiHttpHttpTypesIncomingRequestMethod(request)
 
-	pathWithQuery := kvcounter.WasiHttpTypesIncomingRequestPathWithQuery(request)
+	pathWithQuery := kvcounter.WasiHttpHttpTypesIncomingRequestPathWithQuery(request)
 	if pathWithQuery.IsNone() {
 		return
 	}
 
-	splitPath := strings.Split(pathWithQuery.Unwrap(), "?")
-	trimmedPath := strings.Split(splitPath[0], "/")
+	splitPathQuery := strings.Split(pathWithQuery.Unwrap(), "?")
 
-	switch method.Kind() {
-	case kvcounter.WasiHttpTypesMethodKindGet:
-		if len(trimmedPath) > 1 && (trimmedPath[0] == "api" && trimmedPath[1] == "counter") {
-			bucket := kvcounter.WasiKeyvalueTypesOpenBucket(BUCKET)
-			if bucket.IsErr() {
+	path := splitPathQuery[0]
+	trimmedPath := strings.Split(strings.TrimPrefix(path, "/"), "/")
+
+	switch {
+	case method == kvcounter.WasiHttpHttpTypesMethodGet() && len(trimmedPath) >= 2 && (trimmedPath[0] == "api" && trimmedPath[1] == "counter"):
+		bucket := kvcounter.WasiKeyvalueTypesOpenBucket(BUCKET)
+		if bucket.IsErr() {
+			return
+		}
+
+		var inc int32 = 1
+		if len(trimmedPath) == 4 {
+			i, err := strconv.Atoi(trimmedPath[3])
+			if err != nil {
 				return
 			}
 
-			newNum := kv.IncrementCounter(bucket.Unwrap(), "default", 1)
-			writeWasiHttpResponse([]byte("New value: "+strconv.Itoa(int(newNum))), response)
+			inc = int32(i)
 		}
+
+		newNum := kv.IncrementCounter(bucket.Unwrap(), "default", inc)
+		resp := struct {
+			Counter uint32 `json:"counter"`
+		}{
+			Counter: newNum,
+		}
+
+		bResp, err := json.Marshal(resp)
+		if err != nil {
+			return
+		}
+
+		writeHttpResponse(response, 200, []kvcounter.WasiHttpHttpTypesTuple2StringListU8TT{{F0: "Content-Type", F1: []byte("application/json")}}, bResp)
 	default:
-		return
+		if path == "/" {
+			path = "ui/index.html"
+		} else {
+			path = "ui" + path
+		}
+
+		page, err := embeddedUI.ReadFile(path)
+		if err != nil {
+			writeHttpResponse(response, 404, []kvcounter.WasiHttpHttpTypesTuple2StringListU8TT{{F0: "Content-Type", F1: []byte("application/json")}}, []byte("{\"error\":\""+path+": not found\"}"))
+		}
+
+		ext := ""
+		extSplit := strings.Split(path, ".")
+		if len(extSplit) > 1 {
+			ext = extSplit[len(extSplit)-1]
+		}
+
+		writeHttpResponse(response, 200, []kvcounter.WasiHttpHttpTypesTuple2StringListU8TT{{F0: "Content-Type", F1: []byte(mime.TypeByExtension(ext))}}, page)
 	}
 
 }
