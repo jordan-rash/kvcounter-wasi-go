@@ -17,4 +17,24 @@ export ACTOR_ID=<actorid>
 export HOST_ID=<hostid> # of Rust host 
 
 just start_actor
-`
+```
+
+Versions used for this demo
+
+```
+└─❯ just
+/opt/homebrew/bin/just --list
+Available recipes:
+    build
+    clean
+    restart_actor
+    start_actor
+tinygo version
+tinygo version 0.28.1 darwin/arm64 (using go version go1.20.7 and LLVM version 15.0.7)
+wash --version
+wash 0.19.1
+wasm-tools --version
+wasm-tools 1.0.38 (9fb2019dc 2023-08-18)
+wit-bindgen --version
+wit-bindgen-cli 0.9.0 (8b3e23e8f 2023-08-18)
+```

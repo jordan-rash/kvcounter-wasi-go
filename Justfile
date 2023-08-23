@@ -2,6 +2,7 @@ just := env_var_or_default("JUST", just_executable())
 wasm_tools := env_var_or_default("WASM_TOOLS", "wasm-tools")
 wash := env_var_or_default("WASH", "wash")
 tinygo := env_var_or_default("TINYGO", "tinygo")
+wit_bindgen := env_var_or_default("WIT_BINDGEN", "wit-bindgen")
 
 actorid := env_var_or_default("ACTOR_ID", "")
 hostid := env_var_or_default("HOST_ID", "")
@@ -13,6 +14,11 @@ wasm_preview2_output_path := "./wasi_snapshot_preview1.command.wasm"
 
 _default:
   {{just}} --list
+  {{tinygo}} version
+  {{wash}} --version
+  {{wasm_tools}} --version
+  {{wit_bindgen}} --version
+
 
 build:
   mkdir -p build
