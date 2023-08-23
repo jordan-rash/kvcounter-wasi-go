@@ -103,17 +103,13 @@ func (kv *MyKVCounter) Handle(request kvcounter.WasiHttpIncomingHandlerIncomingR
 			return
 		}
 
-		var inc int32 = 1
-		if len(trimmedPath) == 4 {
-			i, err := strconv.Atoi(trimmedPath[3])
-			if err != nil {
-				return
-			}
-
-			inc = int32(i)
+		var newNum uint32
+		if len(trimmedPath) == 3 && trimmedPath[2] != "" {
+			newNum = kv.IncrementCounter(bucket.Unwrap(), trimmedPath[2], 1)
+		} else {
+			newNum = kv.IncrementCounter(bucket.Unwrap(), "default", 1)
 		}
 
-		newNum := kv.IncrementCounter(bucket.Unwrap(), "default", inc)
 		resp := struct {
 			Counter uint32 `json:"counter"`
 		}{
