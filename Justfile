@@ -28,7 +28,7 @@ build:
   {{tinygo}} build -target=wasi -scheduler=none -o {{expected_wasm_path}} .
   {{wasm_tools}} component embed --world kvcounter ./wit {{expected_wasm_path}} -o {{expected_wasm_embed_path}}
   {{wasm_tools}} component new {{expected_wasm_embed_path}} --adapt wasi_snapshot_preview1={{wasm_preview2_output_path}} -o {{expected_wasm_component_path}}
-  {{wash}} claims sign --name kvcounter-wasi-go {{expected_wasm_component_path}} -k -q
+  {{wash}} claims sign --name kvcounter-wasi {{expected_wasm_component_path}} -l -k -q -v 0.2.0 -r 0
 
 clean:
   rm -rf ./build
